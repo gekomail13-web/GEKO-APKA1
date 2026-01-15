@@ -6,134 +6,121 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # ==========================================
-# 1. KONFIGURACJA (Twoje Dane)
+# 1. KONFIGURACJA DANYCH
 # ==========================================
-# Te dane będą WYCINANE z faktury, żeby nie pomylić Ciebie z klientem
-MOJE_DANE = [
-    "GEKO", "7722420459", "Sp.k.", "Sp. z o.o.", "Kietlin", "Radomsko", 
-    "Sprzedawca", "Wystawca", "Bank", "Konto", "BDO"
-]
-
-# Limit interwencji
+MOJE_DANE = ["GEKO", "7722420459", "Sprzedawca", "Kietlin", "Radomsko"]
 MAX_BRAK_PLN = 300.00
 
 # ==========================================
-# 2. BAZA PROMOCJI (Z Twoich Gazetek)
+# 2. BAZA PROMOCJI (GAZETKI)
 # ==========================================
 
-# Promocje Progowe
+# Format: ([Słowa kluczowe], Próg, Nagroda, Nazwa)
 PROMOS = [
-    # KOMINIARSKA AB.pdf
-    (["szczotk", "wycior", "kula", "lina", "przepychacz", "g667"], 200.00, "T-SHIRT GEKO (0.01 zł)", "🔥 KOMINIARSKA"),
+    # KOMINIARSKA AB
+    (["szczotk", "wycior", "kula", "lina", "przepychacz", "zestaw komin", "g667"], 200.00, "T-SHIRT GEKO (0.01 zł)", "🔥 KOMINIARSKA"),
     
-    # RĘKAWICE AB.pdf + KALOSZE AB.pdf (BHP)
-    # Produkty: Rękawice (G735.., G750..), Kalosze (G905..)
+    # BHP (RĘKAWICE + KALOSZE)
     (["rękawic", "kalosz", "gumofilc", "obuwie", "g735", "g750", "g905"], 500.00, "Rabat 3% + Wieszak", "🔥 BHP (DUŻA)"),
     (["rękawic", "kalosz", "gumofilc", "obuwie", "g735", "g750", "g905"], 250.00, "Wieszak G90406 (1 zł)", "🔥 BHP (MAŁA)"),
     
-    # OGÓLNE (Domyślne progi)
+    # OGÓLNE
     ([], 1000.00, "Bluza Polarowa (1 zł)", "Ogólna (Polar)"),
     ([], 3000.00, "Nagroda PREMIUM", "Ogólna (VIP)")
 ]
 
-# Wielosztuki (2026AB.pdf) - Wykrywanie po kodach
+# WIELOSZTUKI (2026AB) - Kody
 WIELOSZTUKI = {
-    "g01097": "Wciągarka 3T - Taniej przy 2 szt!",
-    "g01362": "Nożyce do drutu 30\" - Taniej przy 2 szt!",
-    "g01363": "Nożyce do drutu 36\" - Taniej przy 2 szt!",
-    "g02180": "Podnośnik ATV - Taniej przy 2 szt!",
-    "g73866": "Łańcuchy śniegowe - Zestaw tańszy!",
-    "g80443": "Grzejnik Konwektor - Taniej przy 2 szt!",
-    "g80444": "Grzejnik LCD - Taniej przy 2 szt!",
-    "g80446": "Grzejnik Szklany - Taniej przy 2 szt!",
-    "g02648": "Klucze - Sprawdź ilość!",
-    "g10868": "Regał magazynowy - Hit Stycznia", # Z Gazetki Styczeń
-    "g80535": "Wentylator kominkowy - Hit Stycznia" #
+    "G01097": "Wciągarka 3T - Taniej przy 2 szt!",
+    "G01362": "Nożyce 30\" - Taniej przy 2 szt!",
+    "G01363": "Nożyce 36\" - Taniej przy 2 szt!",
+    "G02180": "Podnośnik ATV - Taniej przy 2 szt!",
+    "G73866": "Łańcuchy śniegowe - Zestaw tańszy!",
+    "G80443": "Grzejnik Konwektor - Taniej przy 2 szt!",
+    "G80444": "Grzejnik LCD - Taniej przy 2 szt!",
+    "G80446": "Grzejnik Szklany - Taniej przy 2 szt!",
+    "G02648": "Klucze - Sprawdź progi!",
+    "G10868": "Regał - Hit Stycznia",
+    "G29026": "Nożyk do tapet - Hit Cena"
 }
 
-# Cross-Selling (Sugestie)
+# CROSS-SELLING
 SUGESTIE_CROSS = {
-    "prowadnic": "Ostrzałka elektr. (G81207) - Serwis pił",
-    "siekier": "Ostrzałka 2w1 (T02-009) - Tani dodatek",
-    "szczotk": "Kula + Lina - Zbuduj zestaw do 200 zł! [Kominiarska]",
-    "kula": "Lina kominiarska - Do kompletu",
-    "rękawic": "Kalosze / Więcej par - Dobij do 250 zł (Wieszak) [BHP]",
-    "kalosz": "Wkładki filcowe / Rękawice",
-    "nagrzewnic": "Sprawdź drugą sztukę (Wielosztuka 2026AB)"
+    "prowadnic": "Ostrzałka elektr. (G81207)",
+    "siekier": "Ostrzałka 2w1 (T02-009)",
+    "szczotk": "Kula + Lina (Kominiarska)",
+    "kula": "Lina kominiarska",
+    "rękawic": "Kalosze / Gumofilce (BHP)",
+    "kalosz": "Wkładki filcowe",
+    "nagrzewnic": "Druga sztuka (Wielosztuka)"
 }
 
 # ==========================================
-# 3. SILNIK ANALIZY (Poprawiony Nabywca)
+# 3. SILNIK PARSOWANIA (DEDYKOWANY POD SOLEX)
 # ==========================================
 
 def clean_text(text):
-    if not text: return ""
-    return text.replace('\xa0', ' ')
+    return text.replace('\xa0', ' ') if text else ""
 
-def extract_client_data_aggressive(text):
+def extract_client_data_titan(text):
     """
-    Nowy, agresywny algorytm szukania klienta.
-    Ignoruje pozycję linii, szuka 'blokowo' po słowie Nabywca.
+    Algorytm Tytan: Łączy metodę pozycyjną (Solex) i słownikową.
     """
     lines = text.splitlines()
-    client_name = ""
+    client_name = "Nie wykryto klienta"
     client_nip = ""
     
-    # 1. Znajdź NIP Klienta (dowolny 10 cyfr, który nie jest Twój)
+    # 1. NIP (Szukamy każdego, który nie jest GEKO)
     all_nips = re.findall(r'\d{10}', text.replace('-', ''))
     for nip in all_nips:
         if nip != "7722420459":
             client_nip = nip
             break
             
-    # 2. Szukanie Nazwy Firmy
-    # Strategia: Znajdź linię z "Nabywca", weź 5 kolejnych linii.
-    # Filtruj każdą linię przez listę zakazanych słów (MOJE_DANE).
-    # Pierwsza, która przetrwa, to klient.
-    
-    candidates = []
-    start_capture = False
-    buffer_counter = 0
-    
-    for line in lines:
-        # Start capture przy słowie Nabywca/Płatnik/Odbiorca
-        if any(x in line for x in ["Nabywca", "Płatnik", "Odbiorca"]):
-            start_capture = True
-            buffer_counter = 0
-            continue # Pomiń samą linię z nagłówkiem
-            
-        if start_capture:
-            buffer_counter += 1
-            if buffer_counter > 6: # Szukamy tylko w 6 liniach pod nagłówkiem
-                start_capture = False
-            
-            clean = line.strip()
-            
-            # FILTRY ODRZUCAJĄCE
-            is_bad = False
-            if len(clean) < 3: is_bad = True
-            if any(bad in clean for bad in MOJE_DANE): is_bad = True # Odrzuca GEKO itp.
-            if re.search(r'\d{10}', clean.replace('-','')): is_bad = True # Odrzuca linię z samym NIPem
-            if "Adres" in clean or "Data" in clean: is_bad = True
-            
-            if not is_bad:
-                candidates.append(clean)
+    # 2. NAZWA KLIENTA - Logika SolexB2B
+    # Szukamy linii "Nabywca". Następna linia, która NIE jest pusta i NIE jest NIPem, to nazwa.
+    found_nabywca = False
+    for i, line in enumerate(lines):
+        if "Nabywca" in line:
+            # Sprawdzamy kilka linii w dół
+            for offset in range(1, 5): 
+                if i + offset >= len(lines): break
+                
+                candidate = lines[i + offset].strip()
+                
+                # Filtry:
+                if len(candidate) < 3: continue
+                if "NIP" in candidate: continue
+                if re.search(r'\d{10}', candidate.replace('-','')): continue # To linia z NIPem
+                if any(x in candidate for x in MOJE_DANE): continue # To dane GEKO
+                
+                # Jeśli przeszło filtry -> To Klient!
+                client_name = candidate
+                found_nabywca = True
+                break
+        if found_nabywca: break
 
-    if candidates:
-        client_name = candidates[0] # Bierzemy pierwszego kandydata
-    else:
-        client_name = "Nie wykryto (Wpisz ręcznie)"
+    # Fallback (Jeśli metoda Solex zawiedzie, szukamy czegokolwiek co nie jest GEKO)
+    if client_name == "Nie wykryto klienta":
+        for line in lines:
+            if "Nabywca" in line: continue
+            if len(line) > 5 and "GEKO" not in line.upper() and "SPRZEDAWCA" not in line.upper():
+                 # Bardzo luźna heurystyka - bierzemy pierwszą linię wyglądającą na firmę
+                 if not re.search(r'\d', line): # Brak cyfr (adresy mają cyfry)
+                     client_name = line.strip()
+                     break
 
     return client_name, client_nip
 
 def extract_amount_and_codes(text):
     # Kwota
     try:
+        # Szuka: 1 234,56 lub 1234.56
         amounts = re.findall(r"(\d+[\s\.]?\d+[\.,]\d{2})", text)
         clean_amounts = []
         for a in amounts:
             try:
-                # Usuń spacje, zamień przecinki na kropki
+                # Normalizacja
                 val = float(a.replace(' ', '').replace(',', '.').replace('\xa0', ''))
                 clean_amounts.append(val)
             except: pass
@@ -141,65 +128,60 @@ def extract_amount_and_codes(text):
     except:
         netto = 0.0
         
-    # Kody Gxxxxx
-    found_codes = set()
+    # Kody Produktów (Gxxxxx)
+    codes = set()
     matches = re.findall(r'(G\d{5})', text.upper())
-    for m in matches:
-        found_codes.add(m.lower())
+    for m in matches: codes.add(m)
         
-    return netto, found_codes
+    return netto, codes
 
 def analyze_promotion(text, amount):
     text_lower = text.lower()
-    best_promo = None
+    best = None
     min_gap = 99999.0
     
-    # 1. Sprawdź dedykowane (Kominiarka, BHP)
-    dedicated_active = False
-    sorted_promos = sorted(PROMOS, key=lambda x: x[1]) # Sortuj od najniższych progów
+    # 1. Dedykowane
+    dedyk_active = False
+    sorted_promos = sorted(PROMOS, key=lambda x: x[1])
     
-    for keywords, threshold, reward, name in sorted_promos:
-        if keywords: # Jeśli to promocja specjalna
-            if any(k in text_lower for k in keywords):
-                gap = threshold - amount
+    for keywords, thresh, reward, name in sorted_promos:
+        if keywords and any(k in text_lower for k in keywords):
+            gap = thresh - amount
+            if gap > 0 and gap < min_gap:
+                min_gap = gap
+                best = (name, thresh, reward)
+                dedyk_active = True
+            elif gap <= 0 and gap > -1000: # Jeśli spełniona, szukaj wyższej w tej kategorii
+                continue
+
+    # 2. Ogólne
+    if not dedyk_active:
+        for keywords, thresh, reward, name in sorted_promos:
+            if not keywords:
+                gap = thresh - amount
                 if gap > 0 and gap < min_gap:
                     min_gap = gap
-                    best_promo = (name, threshold, reward)
-                    dedicated_active = True
-                # Jeśli próg BHP (250) osiągnięty, pozwól szukać kolejnego (500)
-                elif gap <= 0 and gap > -500: 
-                    pass 
+                    best = (name, thresh, reward)
+                    
+    if not best: return ("MAX", 0.0, "WSZYSTKO ZDOBYTE"), 0.0
+    return best, min_gap
 
-    # 2. Jeśli brak dedykowanej (lub spełniona), sprawdź ogólne
-    if not dedicated_active:
-        for keywords, threshold, reward, name in sorted_promos:
-            if not keywords: # Ogólna
-                gap = threshold - amount
-                if gap > 0 and gap < min_gap:
-                    min_gap = gap
-                    best_promo = (name, threshold, reward)
-
-    if not best_promo:
-         return ("MAX", 0.0, "Wszystko zdobyte!"), 0.0
-         
-    return best_promo, min_gap
-
-def get_suggestions(text, found_codes):
+def get_suggestions(text, codes):
     sug = []
     text_lower = text.lower()
     
-    # Wielosztuki
-    for code, msg in WIELOSZTUKI.items():
-        if code in found_codes:
-            sug.append(f"📦 **WIELOSZTUKA:** {msg}")
+    # Wielosztuki (po kodach)
+    for c, msg in WIELOSZTUKI.items():
+        if c in codes:
+            sug.append(f"📦 **{c}:** {msg}")
             
-    # Cross-selling
+    # Cross-selling (po słowach)
     for k, v in SUGESTIE_CROSS.items():
         if k in text_lower:
             sug.append(f"💡 **SUGESTIA:** {v}")
             
-    if not sug: sug.append("💡 Sugestia: Chemia warsztatowa (uniwersalna)")
-    return list(set(sug)) # Usuń duplikaty
+    if not sug: sug.append("💡 Sugestia: Chemia warsztatowa")
+    return list(set(sug))
 
 def send_email_report(data, secrets):
     if not secrets: return False
@@ -209,13 +191,14 @@ def send_email_report(data, secrets):
     msg['Subject'] = f"🔔 {data['client']} - Brakuje {data['gap']:.0f} zł"
     
     body = f"""
-    KLIENT: {data['client']} (NIP: {data['nip']})
+    KLIENT: {data['client']}
+    NIP:    {data['nip']}
     KWOTA:  {data['amount']:.2f} zł
-    --------------------------------
+    ---------------------------------
     CEL:     {data['promo_name']} ({data['promo_target']} zł)
     BRAKUJE: {data['gap']:.2f} zł
     NAGRODA: {data['promo_reward']}
-    --------------------------------
+    ---------------------------------
     {chr(10).join(data['suggestions'])}
     """
     msg.attach(MIMEText(body, 'plain'))
@@ -229,17 +212,18 @@ def send_email_report(data, secrets):
     except: return False
 
 # ==========================================
-# 4. UI (Streamlit)
+# 4. UI APLIKACJI
 # ==========================================
-st.set_page_config(page_title="GEKO PANZER", page_icon="🛡️", layout="centered")
+st.set_page_config(page_title="GEKO TYTAN", page_icon="🏛️", layout="centered")
 
+# CSS - Wielkie przyciski na telefon
 st.markdown("""
 <style>
     .stButton>button {
-        width: 100%; height: 60px; font-size: 24px; font-weight: bold;
+        width: 100%; height: 65px; font-size: 22px; font-weight: bold;
         background-color: #d63031; color: white; border-radius: 8px;
     }
-    .big-input input { font-size: 20px !important; font-weight: bold; }
+    input { font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -247,33 +231,31 @@ try:
     SECRETS = {k: st.secrets[k] for k in ["EMAIL_NADAWCY", "HASLO_NADAWCY", "EMAIL_ODBIORCY"]}
 except: SECRETS = None
 
-st.title("🛡️ GEKO PANZER 6.0")
-st.caption("Najmocniejszy silnik wykrywania klientów")
+st.title("🏛️ GEKO TYTAN 7.0")
+st.caption("Specjalizacja: Platforma SolexB2B")
 
-uploaded_file = st.file_uploader("WRZUĆ PDF", type="pdf")
+uploaded_file = st.file_uploader("WRZUĆ PDF Z ZAMÓWIENIEM", type="pdf")
 
 if uploaded_file:
-    # 1. Parsowanie
     raw_text = ""
     with pdfplumber.open(uploaded_file) as pdf:
-        for page in pdf.pages:
-            raw_text += page.extract_text() or ""
+        for page in pdf.pages: raw_text += page.extract_text() or ""
     text = clean_text(raw_text)
     
-    # 2. Ekstrakcja Danych
-    d_client, d_nip = extract_client_data_aggressive(text)
+    # Ekstrakcja
+    d_client, d_nip = extract_client_data_titan(text)
     d_amount, d_codes = extract_amount_and_codes(text)
     
-    # 3. PANEL WERYFIKACJI (Góra Ekranu)
-    st.success("👇 DANE KLIENTA (Edytuj jeśli trzeba) 👇")
+    # PANEL EDYCJI (Zawsze widoczny)
+    st.info("👇 WERYFIKACJA DANYCH 👇")
     c1, c2 = st.columns([2, 1])
     with c1:
-        f_client = st.text_input("NAZWA KLIENTA", value=d_client)
+        f_client = st.text_input("KLIENT", value=d_client)
         f_nip = st.text_input("NIP", value=d_nip)
     with c2:
-        f_amount = st.number_input("NETTO (PLN)", value=float(d_amount), step=10.0)
-
-    # 4. ANALIZA
+        f_amount = st.number_input("NETTO", value=float(d_amount), step=10.0)
+        
+    # ANALIZA
     if f_amount > 0:
         (p_name, p_target, p_reward), gap = analyze_promotion(text, f_amount)
         suggestions = get_suggestions(text, d_codes)
@@ -285,29 +267,28 @@ if uploaded_file:
             
         if gap <= 0:
             st.balloons()
-            st.success(f"✅ ZDOBYTE: {p_reward} ({p_name})")
+            st.success(f"✅ ZDOBYTE: {p_reward}!")
         elif gap > MAX_BRAK_PLN:
             st.info(f"🔵 Brakuje {gap:.2f} zł. Powyżej limitu interwencji.")
         else:
             st.error(f"🔥 ALARM! BRAKUJE {gap:.2f} ZŁ")
-            st.markdown(f"### 🎁 Nagroda: {p_reward}")
+            st.markdown(f"**Nagroda:** {p_reward}")
             
             with st.container(border=True):
                 st.write("💡 **PODPOWIEDZI:**")
-                for s in suggestions:
-                    st.write(s)
+                for s in suggestions: st.write(s)
                 
                 # SMS
-                sms_item = suggestions[0].split(':')[-1].strip() if suggestions else "Chemia"
-                sms = f"Dzien dobry! Tu GEKO. Brakuje Panu {gap:.0f} zl do promocji '{p_name}'. Moze dorzucimy: {sms_item}?"
+                item = suggestions[0].split(':')[-1].strip() if suggestions else "Chemia"
+                sms = f"Dzien dobry! Brakuje Panu {gap:.0f} zl do promocji '{p_name}'. Moze dorzucimy: {item}?"
                 st.code(sms, language="text")
                 
             if st.button("📧 WYŚLIJ RAPORT"):
-                dat = {"client": f_client, "nip": f_nip, "amount": f_amount, 
-                       "gap": gap, "promo_name": p_name, "promo_target": p_target, 
+                dat = {"client": f_client, "nip": f_nip, "amount": f_amount,
+                       "gap": gap, "promo_name": p_name, "promo_target": p_target,
                        "promo_reward": p_reward, "suggestions": suggestions}
                 if send_email_report(dat, SECRETS):
                     st.toast("Wysłano!", icon="✅")
-                else: st.error("Błąd wysyłki")
+                else: st.error("Błąd maila")
     else:
-        st.warning("⚠️ Brak kwoty. Wpisz ręcznie.")
+        st.warning("⚠️ Wpisz kwotę ręcznie.")
