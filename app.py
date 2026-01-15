@@ -9,7 +9,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # ==========================================
-# 0. KONFIGURACJA WYGLĄDU
+# 0. KONFIGURACJA
 # ==========================================
 st.set_page_config(page_title="GEKO SALES DIRECTOR", page_icon="🦁", layout="wide")
 
@@ -33,6 +33,13 @@ hide_st_style = """
                 font-size: 18px;
             }
             input { font-size: 18px !important; font-weight: 600 !important; }
+            /* Styl dla sekcji SMS */
+            .sms-box {
+                border: 2px dashed #d63031;
+                padding: 20px;
+                border-radius: 10px;
+                background-color: #fff5f5;
+            }
             </style>
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
@@ -92,14 +99,13 @@ def clean_text(text):
 def extract_client_data_delivery(text):
     """
     ALGORYTM 'ADRES DOSTAWY':
-    Zgodnie z życzeniem, szukamy danych pod sekcją 'Adres dostawy'.
-    Tam są dane pewne klienta.
+    Szukamy danych pod sekcją 'Adres dostawy'.
     """
     lines = text.splitlines()
     client_name = "Nie wykryto klienta"
     client_nip = ""
     
-    # 1. NIP (Standardowo - szukamy każdego nie-GEKO)
+    # 1. NIP
     all_nips = re.findall(r'\d{10}', text.replace('-', ''))
     for nip in all_nips:
         if nip != "7722420459":
@@ -108,30 +114,22 @@ def extract_client_data_delivery(text):
             
     # 2. KLIENT (POD ADRESEM DOSTAWY)
     found_header = False
-    
     for i, line in enumerate(lines):
-        # Szukamy nagłówka "Adres dostawy"
         if "Adres dostawy" in line:
-            # Skanujemy 3-4 linie w dół
             for offset in range(1, 5):
                 if i + offset >= len(lines): break
                 candidate = lines[i + offset].strip()
-                
-                # Odrzucamy śmieci
                 if len(candidate) < 3: continue
                 if "Telefon" in candidate: continue
                 if "e-mail" in candidate: continue
                 if "PL" == candidate: continue
-                # Jeśli to GEKO, odrzucamy (bezpiecznik)
                 if any(x.upper() in candidate.upper() for x in MOJE_DANE): continue
-                
-                # Pierwsza sensowna linia pod "Adres dostawy" to nazwa firmy
                 client_name = candidate
                 found_header = True
                 break
         if found_header: break
         
-    # FALLBACK (Gdyby nie było adresu dostawy, szukamy Nabywcy)
+    # FALLBACK
     if client_name == "Nie wykryto klienta":
         for i, line in enumerate(lines):
             if "Nabywca" in line:
@@ -141,7 +139,6 @@ def extract_client_data_delivery(text):
                     if len(cand) > 3 and "NIP" not in cand and "GEKO" not in cand:
                         client_name = cand
                         break
-                        
     return client_name, client_nip
 
 def extract_amount_and_codes(text):
@@ -211,20 +208,13 @@ def send_email_report(data, secrets):
     msg['From'] = secrets["EMAIL_NADAWCY"]
     msg['To'] = secrets["EMAIL_ODBIORCY"]
     msg['Subject'] = f"🔔 {data['client']} - Brakuje {data['gap']:.0f} zł"
-    
     body = f"""
     RAPORT HANDLOWY GEKO
-    ---------------------------------
     KLIENT: {data['client']}
-    NIP:    {data['nip']}
     KWOTA:  {data['amount']:.2f} zł
-    ---------------------------------
-    CEL PROMOCJI: {data['promo_name']} ({data['promo_target']} zł)
-    BRAKUJE:      {data['gap']:.2f} zł
-    NAGRODA:      {data['promo_reward']}
-    ---------------------------------
-    HANDLOWIEC POWINIEN ZAPROPONOWAĆ:
-    {chr(10).join(data['suggestions'])}
+    BRAKUJE: {data['gap']:.2f} zł
+    CEL: {data['promo_name']}
+    NAGRODA: {data['promo_reward']}
     """
     msg.attach(MIMEText(body, 'plain'))
     try:
@@ -259,7 +249,7 @@ c1, c2 = st.columns([1, 6])
 with c1: st.write("# 🦁")
 with c2:
     st.title("System Wsparcia Sprzedaży B2B")
-    st.caption("Kampanie: Styczeń 2026 | Kominiarska | BHP | Wielosztuki")
+    st.caption("Kampanie: Styczeń 2026 | Wielosztuki | Cross-Selling")
 
 # METRICS
 m1, m2, m3 = st.columns(3)
@@ -279,7 +269,6 @@ if uploaded_file:
         for page in pdf.pages: raw_text += page.extract_text() or ""
     text = clean_text(raw_text)
     
-    # NOWA FUNKCJA CZYTANIA DANYCH
     d_client, d_nip = extract_client_data_delivery(text)
     d_amount, d_codes = extract_amount_and_codes(text)
     
@@ -307,31 +296,3 @@ if uploaded_file:
             if p_target > 0:
                 prog = min(f_amount / p_target, 1.0)
                 st.progress(prog, text=f"Realizacja: {int(prog*100)}% ({f_amount:.2f} / {p_target} zł)")
-            
-            if gap <= 0:
-                st.balloons()
-                st.success(f"✅ ZDOBYTE: {p_reward}")
-            elif gap > MAX_BRAK_PLN:
-                st.info(f"Brakuje {gap:.2f} zł (Limit interwencji).")
-            else:
-                st.error(f"⚠️ BRAKUJE: {gap:.2f} ZŁ")
-                st.metric("Nagroda", p_reward)
-                
-                try:
-                    SECRETS = {k: st.secrets[k] for k in ["EMAIL_NADAWCY", "HASLO_NADAWCY", "EMAIL_ODBIORCY"]}
-                    if st.button("📧 WYŚLIJ RAPORT DO MNIE"):
-                        dat = {"client": f_client, "nip": f_nip, "amount": f_amount, "gap": gap, "promo_name": p_name, "promo_target": p_target, "promo_reward": p_reward, "suggestions": suggestions}
-                        if send_email_report(dat, SECRETS): st.toast("Wysłano!", icon="✅")
-                        else: st.error("Błąd wysyłki")
-                except: pass
-
-        with rc2:
-            st.subheader("💡 Sugestie Handlowe")
-            with st.container(border=True):
-                for s in suggestions: st.markdown(s)
-                st.markdown("---")
-                item = suggestions[0].split(':')[-1].strip().replace('*', '') if suggestions else "Nozyk do tapet"
-                sms = f"Dzien dobry! Tu GEKO. Brakuje Panu {gap:.0f} zl do promocji '{p_name}'. Moze dorzucimy: {item}?"
-                st.text_area("SMS (Kopiuj)", value=sms, height=100)
-    else:
-        st.warning("⚠️ Wpisz kwotę ręcznie.")
